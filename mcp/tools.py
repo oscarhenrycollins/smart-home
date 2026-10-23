@@ -287,9 +287,9 @@ def status():
            "xiaomi": {"connected": bool(xiaomi), "sign_in_started": bool(pending and not xiaomi)},
            "home_page": PAGE, "camera_video": False}
     if not connected:
-        out["next"] = ("No devices connected yet. Ask the owner to open the Smart Home app and tap Connect Xiaomi "
-                       "(sign-in is the owner's own step; you cannot do it for them). Other brands are added in "
-                       "Home Assistant itself, from the app's Advanced link.")
+        out["next"] = ("No devices connected yet. Ask the owner to open the Smart Home app and tap \"Sign in to "
+                       "Xiaomi\" (sign-in is the owner's own step; you cannot do it for them). Any other brand: the "
+                       "app's \"Other brands\" button opens Home Assistant itself.")
     else:
         out["next"] = "Use home_devices to see what is there, then home_control to act."
     return out
@@ -383,7 +383,7 @@ def xiaomi_finish(pasted):
 
 # ---------------- agent tools ----------------
 
-@tool("home_status", "Smart Home status: whether Home Assistant is ready, which brands are connected (e.g. Xiaomi), "
+@tool("home_status", "Smart Home status: whether Home Assistant is ready, which brands are connected, "
       "how many devices there are, and the next step. Call it first. Camera video is not available to agents.")
 def home_status():
     _box_only()

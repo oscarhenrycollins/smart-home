@@ -194,6 +194,24 @@ def devices(room="", kind="", name=""):
     return out
 
 
+def grouped(items):
+    """Home Assistant splits one device into many parts (power, mode, PM2.5, filter...). Group them back."""
+    out, idx = [], {}
+    for d in items:
+        key = (d["room"], d["device"] or d["name"])
+        if key not in idx:
+            idx[key] = {"device": key[1], "room": d["room"], "parts": []}
+            out.append(idx[key])
+        part = dict(d)
+        for k in ("device", "room"):
+            part.pop(k)
+        name = part["name"]
+        if key[1] and name.lower().startswith(key[1].lower()):
+            part["name"] = name[len(key[1]):].strip() or name
+        idx[key]["parts"].append(part)
+    return out
+
+
 def _actions(domain):
     for d in ha("GET", "/api/services") or []:
         if d.get("domain") == domain:
@@ -282,7 +300,7 @@ def status():
     xiaomi = [c for c in connected if c["integration"] == "xiaomi_home"]
     pending = _read_json("xiaomi_flow.json")
     devs = devices()
-    out = {"ready": True, "state": "ready", "connected": connected, "devices": len(devs),
+    out = {"ready": True, "state": "ready", "connected": connected, "devices": len(grouped(devs)), "parts": len(devs),
            "controllable": sum(1 for d in devs if d["controllable"]),
            "xiaomi": {"connected": bool(xiaomi), "sign_in_started": bool(pending and not xiaomi)},
            "home_page": PAGE, "camera_video": False}
@@ -390,17 +408,18 @@ def home_status():
     return status()
 
 
-@tool("home_devices", "List the owner's smart-home devices with their current state: purifiers, vacuums, lights, "
-      "plugs, cameras, sensors (air quality, temperature, battery). Filter by room, kind (light, fan, vacuum, sensor, "
+@tool("home_devices", "List the owner's smart-home devices, grouped by physical device, each with its parts and their "
+      "current state: power, mode, sensors (air quality, temperature, battery, filter). Filter by room, kind (light, fan, vacuum, sensor, "
       "switch, camera, select...) or part of a name.",
       {"room": {"type": "string", "description": "Part of a room name (optional)"},
        "kind": {"type": "string", "description": "Device kind, e.g. vacuum, fan, light, sensor (optional)"},
        "name": {"type": "string", "description": "Part of a device name (optional)"}})
 def home_devices(room="", kind="", name=""):
     _box_only()
-    found = devices(room, kind, name)
-    return {"count": len(found), "devices": found[:300],
-            "next": "home_device shows one device's details and the actions it accepts."}
+    found = grouped(devices(room, kind, name))
+    return {"count": len(found), "devices": found,
+            "next": "Each device lists its parts (power, mode, sensors) with their entity_id. home_device shows one "
+                    "part's details and actions; home_control acts on a part."}
 
 
 @tool("home_device", "One device in detail: its state, every attribute (mode, fan speed, battery, filter life, "

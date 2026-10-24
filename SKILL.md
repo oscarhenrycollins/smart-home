@@ -10,7 +10,7 @@ The Smart Home app is Home Assistant on this box, set up for the owner. It holds
 ## Tools
 
 - `home_status`: call first. Says whether it is ready, which brands are connected and what to do next.
-- `home_devices`: devices with their current state. Filter by `room`, `kind` (fan, vacuum, light, switch, sensor, camera, select...) or part of a `name`.
+- `home_devices`: devices grouped by physical device, each with its parts (power switch, mode, sensors) and their `entity_id`s. Filter by `room`, `kind` (fan, vacuum, light, switch, sensor, camera, select...) or part of a `name`.
 - `home_device`: one device's full state (mode, speed, battery, filter life, air quality) and the actions it accepts with their options.
 - `home_control`: run one action on one device, e.g. `turn_on`, `start`, `return_to_base`, `set_preset_mode` with `{"preset_mode": "sleep"}`. The result reads the state back.
 

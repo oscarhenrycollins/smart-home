@@ -16,7 +16,7 @@ services:
     mem_limit: 256m
     environment:
       WIZARD_APP: smart-home
-      APP_VERSION: 0.1.3
+      APP_VERSION: 0.1.4
       FRONT_PORT: '8080'
       UPSTREAM_HOST: smart-home-engine
       UPSTREAM_PORT: '8123'
@@ -825,6 +825,14 @@ services:
       .sh-sw[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); }
       .sh-sw[aria-pressed="true"]::after { transform: translateX(20px); background: var(--on-accent); }
       .sh-sw:disabled { opacity: .5; }
+      .sh-dev + .sh-dev { border-top: 1px solid var(--line); }
+      .sh-dev summary { list-style: none; cursor: pointer; }
+      .sh-dev summary::-webkit-details-marker { display: none; }
+      .sh-dev summary.sh-nomore { cursor: default; }
+      .sh-more { list-style: none; margin: 0 0 6px; padding: 0 0 0 14px; }
+      .sh-more .sh-row { min-height: 44px; padding: 4px 14px 4px 0; font-size: 14px; color: var(--ink-2); }
+      .sh-more .sh-row + .sh-row { border-top: 1px solid var(--line); }
+      .sh-main small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .sh-empty { text-align: center; color: var(--ink-3); padding: 30px 0; }
       .sh-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 18px 0 0; font-size: 13px; color: var(--ink-3); }
       .sh-foot a { display: inline-flex; align-items: center; min-height: 40px; margin-top: 6px; padding: 0 12px; border-radius: 99px; border: 1px solid var(--line); background: var(--solid); color: var(--ink-2); text-decoration: none; }
@@ -851,26 +859,56 @@ services:
           if (d.state === 'unknown') return '–';
           return d.unit ? d.state + ' ' + d.unit : String(d.state).replace(/_/g, ' ');
         }
+        const KEY = /pm2\.?5|air quality|battery level|filter life|temperature|humidity|mode(?![\s\S])/i;
+        const known = d => d.state !== 'unknown' && d.state !== 'unavailable' && !/^\s*\*/.test(short(d));
+        function short(d) {
+          let n = String(d.name || '');
+          if (d.device && n.toLowerCase().startsWith(d.device.toLowerCase())) n = n.slice(d.device.length);
+          n = n.trim().split(/\s+/).filter((w, i, a) => i === 0 || w.toLowerCase() !== a[i - 1].toLowerCase()).join(' ');
+          return n || d.name;
+        }
+        function mainOf(items) {
+          return items.find(d => d.kind === 'vacuum') || items.find(d => d.kind === 'fan') ||
+            items.find(d => d.kind === 'switch' && /(power|switch status)(?![\s\S])/i.test(d.name)) || null;
+        }
+        function control(d) {
+          if (d.toggle && (d.state === 'on' || d.state === 'off')) {
+            const b = node('button', 'sh-sw'); b.type = 'button'; b.setAttribute('aria-pressed', String(d.state === 'on'));
+            b.setAttribute('aria-label', d.name); b.onclick = e => { e.preventDefault(); flip(d, b); }; return b;
+          }
+          return node('span', 'sh-val', shown(d));
+        }
         function paintDevices(list) {
           const rooms = new Map();
-          for (const d of list) { const r = d.room || 'Other'; if (!rooms.has(r)) rooms.set(r, []); rooms.get(r).push(d); }
-          const frag = [];
-          for (const [room, items] of rooms) {
+          for (const d of list) {
+            const r = d.room || 'Other', k = d.device || d.name;
+            if (!rooms.has(r)) rooms.set(r, new Map());
+            const devs = rooms.get(r); if (!devs.has(k)) devs.set(k, []); devs.get(k).push(d);
+          }
+          const frag = []; let count = 0;
+          for (const [room, devs] of rooms) {
             frag.push(node('h3', 'sh-room', room));
             const ul = node('ul', 'sh-rows');
-            for (const d of items) {
-              const li = node('li', 'sh-row'); const m = node('div', 'sh-main');
-              m.appendChild(node('b', '', d.name)); if (d.device && d.device !== d.name) m.appendChild(node('small', '', d.device));
-              li.appendChild(m);
-              if (d.toggle && (d.state === 'on' || d.state === 'off')) {
-                const b = node('button', 'sh-sw'); b.type = 'button'; b.setAttribute('aria-pressed', String(d.state === 'on'));
-                b.setAttribute('aria-label', d.name); b.onclick = () => flip(d, b); li.appendChild(b);
-              } else li.appendChild(node('span', 'sh-val', shown(d)));
-              ul.appendChild(li);
+            for (const [name, items] of devs) {
+              count++;
+              const main = mainOf(items), live = items.filter(known);
+              const keys = live.filter(d => d !== main && d.kind === 'sensor' && KEY.test(d.name)).slice(0, 3);
+              const li = node('li', 'sh-dev'); const det = node('details'); const sum = node('summary', 'sh-row');
+              const m = node('div', 'sh-main'); m.appendChild(node('b', '', name));
+              const sub = keys.map(k => short(k).replace(/^(environment|filter|battery)\s+/i, '') + ' ' + shown(k)).join(' · ');
+              if (sub) m.appendChild(node('small', '', sub));
+              sum.appendChild(m);
+              if (main) sum.appendChild(control(main)); else if (!live.length) sum.appendChild(node('span', 'sh-val', 'Offline'));
+              det.appendChild(sum);
+              const more = node('ul', 'sh-more');
+              for (const d of live) { if (d === main) continue; const r = node('li', 'sh-row'); r.appendChild(node('span', 'sh-main', short(d))); r.appendChild(control(d)); more.appendChild(r); }
+              if (more.children.length) det.appendChild(more); else sum.classList.add('sh-nomore');
+              li.appendChild(det); ul.appendChild(li);
             }
             frag.push(ul);
           }
           el('list').replaceChildren(...frag);
+          if (st && st.ready) el('line').textContent = count ? count + (count === 1 ? ' device' : ' devices') : 'Nothing connected yet';
           el('empty').hidden = list.length > 0 || !st || !st.ready || !el('connect').hidden;
         }
         async function flip(d, b) {

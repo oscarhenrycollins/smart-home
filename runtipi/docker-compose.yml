@@ -943,6 +943,8 @@ services:
     - no-new-privileges:true
     pids_limit: 1024
     mem_limit: 2g
+    # Home Assistant writes new connections to disk on shutdown; give it time so an update never loses one.
+    stop_grace_period: 90s
     environment:
       TZ: ${TZ:-UTC}
     volumes:

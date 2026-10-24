@@ -1,11 +1,11 @@
 ---
 name: smart-home
-description: Use when the owner asks about or wants to control devices at home (air purifier, vacuum, lights, plugs, fans, cameras, air quality, temperature, "is X on", "start the vacuum"). Read and control them with the Smart Home app.
+description: Use when the owner asks about or wants to control devices at home (air purifier, vacuum, lights, plugs, fans, cameras, air quality, temperature, "is X on", "start the vacuum"). Read and control them with the Home Assistant app.
 ---
 
-# Smart Home
+# Home Assistant
 
-The Smart Home app is Home Assistant on this box, set up for the owner. It holds the connection to their device brands.
+The Home Assistant app (id smart-home) is Home Assistant run for the owner on this box, or a link to their own Home Assistant if they chose that. It holds the connection to their device brands.
 
 ## Tools
 
@@ -24,6 +24,6 @@ The Smart Home app is Home Assistant on this box, set up for the owner. It holds
 
 - Only do what was asked. Don't change modes, speeds or other devices on the side.
 - Unlocking, disarming or opening doors needs the owner's explicit yes in this chat; then pass `confirmed: true`.
-- Nothing connected yet: the owner signs in themselves. Tell them to open Smart Home and tap "Sign in to Xiaomi" (or "Other brands" for anything else). You can't sign in for them.
+- Nothing connected yet: the owner signs in themselves. Tell them to open the Home Assistant app and pick their brand, or "My own Home Assistant" if they already run one. You can't sign in for them.
 - Camera video isn't available to you. Cameras can only be switched on or off. Say so if asked to look at a camera.
 - A device showing `unavailable` is offline (unplugged, or off Wi-Fi). Say that rather than retrying.

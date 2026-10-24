@@ -1,4 +1,4 @@
-# Smart Home tools: the agent reads and controls the owner's devices through Home Assistant.
+# Home Assistant app tools: the agent reads and controls the owner's devices through Home Assistant.
 # The engine behind this front is the unmodified official Home Assistant container. This front sets it up
 # by itself (owner account, onboarding), keeps its sign-in in /ha/.wizard (0700, only this app reads it),
 # serves the owner's Home page at /smart-home/ and the agent's tools at /mcp, and passes everything else
@@ -47,7 +47,7 @@ def _box_only():
     h = REQUEST.get()
     if any(h.get(k) for k in ("tailscale-user-login", "x-forwarded-for", "forwarded", "cf-connecting-ip",
                               "cf-access-jwt-assertion", "x-real-ip")):
-        raise PermissionError("the Smart Home tools are only for apps on this box")
+        raise PermissionError("the Home Assistant tools are only for apps on this box")
 
 
 # ---------------- Home Assistant sign-in (set up automatically on first start) ----------------
@@ -132,7 +132,65 @@ def _access():
         return _token["access"]
 
 
+def _own():
+    """The owner's own Home Assistant (address + long-lived token), when they chose to use theirs instead."""
+    try:
+        with open(_state_path("own.json")) as f:
+            d = json.load(f)
+        return d if d.get("url") and d.get("token") else None
+    except (OSError, ValueError):
+        return None
+
+
+def _own_call(url, token, method, path, payload=None, timeout=30):
+    import ssl
+    body = None if payload is None else json.dumps(payload).encode()
+    req = urllib.request.Request(url + path, data=body, method=method,
+                                 headers={"Authorization": "Bearer " + token, "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout, context=ssl.create_default_context()) as r:
+            raw = r.read(8 << 20)
+    except urllib.error.HTTPError as e:
+        if e.code == 401:
+            raise PermissionError("Your Home Assistant refused the access token. Make a new one and connect again.")
+        raise RuntimeError("Home Assistant said %d: %s" % (e.code, e.read().decode("utf-8", "replace")[:300]))
+    except (urllib.error.URLError, OSError) as e:
+        raise RuntimeError("Can't reach your Home Assistant at %s (%s). If it is at home, reach it through Tailscale "
+                           "or Home Assistant Cloud." % (url, getattr(e, "reason", e)))
+    try:
+        return json.loads(raw or b"null")
+    except ValueError:
+        return raw.decode("utf-8", "replace")
+
+
+def own_connect(url, token):
+    u = urllib.parse.urlsplit(str(url or "").strip())
+    if u.scheme not in ("http", "https") or not u.hostname or u.username or u.password or u.query or u.fragment:
+        raise ValueError("The address looks like http://192.168.1.20:8123 or https://xyz.ui.nabu.casa")
+    url = urllib.parse.urlunsplit((u.scheme, u.netloc, u.path.rstrip("/"), "", ""))
+    token = str(token or "").strip()
+    if not (20 <= len(token) <= 1000) or any(ch.isspace() for ch in token):
+        raise ValueError("Paste the long-lived access token from your Home Assistant profile (Security tab).")
+    info = _own_call(url, token, "GET", "/api/config", timeout=20)
+    if not isinstance(info, dict) or "version" not in info:
+        raise RuntimeError("That address answered, but not like Home Assistant.")
+    _write_json("own.json", {"url": url, "token": token, "name": info.get("location_name") or "Home",
+                             "version": info.get("version"), "connected_at": int(time.time())})
+    return {"connected": True, "name": info.get("location_name") or "Home", "version": info.get("version")}
+
+
+def own_disconnect():
+    try:
+        os.remove(_state_path("own.json"))
+    except OSError:
+        pass
+    return {"own": False}
+
+
 def ha(method, path, payload=None, timeout=30):
+    own = _own()
+    if own:
+        return _own_call(own["url"], own["token"], method, path, payload, timeout)
     body = None if payload is None else json.dumps(payload).encode()
     hdr = {"Authorization": "Bearer " + _access(), "Content-Type": "application/json"}
     try:
@@ -286,6 +344,18 @@ def _entries():
 
 
 def status():
+    own = _own()
+    if own:
+        out = {"own": True, "home": own.get("name"), "address": own["url"], "home_page": PAGE, "camera_video": False}
+        try:
+            devs = devices()
+            out.update(ready=True, state="ready", connected=[{"brand": "Your Home Assistant", "integration": "own",
+                       "state": "loaded"}], devices=len(grouped(devs)), parts=len(devs),
+                       controllable=sum(1 for d in devs if d["controllable"]), xiaomi={"connected": False},
+                       next="Using the owner's own Home Assistant. Use home_devices, then home_control.")
+        except Exception as e:
+            out.update(ready=False, state="unreachable", next=str(e))
+        return out
     steps = _ha_up()
     if steps is None:
         return {"ready": False, "state": "starting", "next": "Home Assistant is starting. Check again in a minute."}
@@ -303,11 +373,12 @@ def status():
     out = {"ready": True, "state": "ready", "connected": connected, "devices": len(grouped(devs)), "parts": len(devs),
            "controllable": sum(1 for d in devs if d["controllable"]),
            "xiaomi": {"connected": bool(xiaomi), "sign_in_started": bool(pending and not xiaomi)},
-           "home_page": PAGE, "camera_video": False}
+           "home_page": PAGE, "camera_video": False, "own": False}
     if not connected:
-        out["next"] = ("No devices connected yet. Ask the owner to open the Smart Home app and pick their brand "
-                       "(Xiaomi signs in right there) (sign-in is the owner's own step; you cannot do it for them). Any other brand: the "
-                       "app's \"Other brands\" button opens Home Assistant itself.")
+        out["next"] = ("No devices connected yet. Ask the owner to open the Home Assistant app and pick their brand "
+                       "(Xiaomi signs in right there), or choose \"My own Home Assistant\" if they already run one. "
+                       "Sign-in is the owner's own step; you cannot do it for them. Any other brand: the app's "
+                       "\"Other brands\" button opens Home Assistant's own setup.")
     else:
         out["next"] = "Use home_devices to see what is there, then home_control to act."
     return out
@@ -401,7 +472,7 @@ def xiaomi_finish(pasted):
 
 # ---------------- agent tools ----------------
 
-@tool("home_status", "Smart Home status: whether Home Assistant is ready, which brands are connected, "
+@tool("home_status", "Home Assistant app status (built in, or the owner's own Home Assistant): whether Home Assistant is ready, which brands are connected, "
       "how many devices there are, and the next step. Call it first. Camera video is not available to agents.")
 def home_status():
     _box_only()
@@ -467,7 +538,7 @@ def _body(headers, body):
 def page_route(method, path, query, headers, body):
     sub = path[len(PAGE):] if path.startswith(PAGE) else ""
     if sub.startswith("api/") and headers.get("sec-fetch-site", "same-origin") not in ("same-origin", "none"):
-        return _json(403, {"error": "open Smart Home from your Wizard"})
+        return _json(403, {"error": "open Home Assistant from your Wizard"})
     try:
         if method == "GET" and sub in ("", "index.html"):
             return 200, "text/html; charset=utf-8", PAGE_HTML.encode()
@@ -494,6 +565,12 @@ def page_route(method, path, query, headers, body):
             return _json(200, control(d.get("entity_id"), d.get("action")))
         if method == "POST" and sub == "api/xiaomi/start":
             return _json(200, xiaomi_start(str(_body(headers, body).get("region") or "sg")))
+        if method == "POST" and sub == "api/own/connect":
+            d = _body(headers, body)
+            return _json(200, own_connect(d.get("url"), d.get("token")))
+        if method == "POST" and sub == "api/own/disconnect":
+            _body(headers, body)
+            return _json(200, own_disconnect())
         if method == "POST" and sub == "api/xiaomi/finish":
             return _json(200, xiaomi_finish(_body(headers, body).get("url")))
     except PermissionError as e:
@@ -511,7 +588,7 @@ PAGE_HTML = """<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="dark light">
-<title>Smart Home</title>
+<title>Home Assistant</title>
 <script>try { if (window.parent !== window) document.documentElement.classList.add('wz-hosted'); } catch (e) { document.documentElement.classList.add('wz-hosted'); }</script>
 <link rel="stylesheet" href="app.css">
 <script src="/wizard-os-home/core/app-client.js" onerror="this.remove()"></script>
@@ -519,14 +596,19 @@ PAGE_HTML = """<!doctype html>
 </head>
 <body>
 <div class="sh-app">
-  <header class="sh-head"><h1>Smart Home</h1><p id="line" class="sh-line">Loading…</p></header>
+  <header class="sh-head"><h1>Home Assistant</h1><p id="line" class="sh-line">Loading…</p></header>
   <main class="sh-scroll">
     <section id="connect" class="sh-card" hidden>
       <h2>Connect your devices</h2>
       <div id="step1">
-        <label class="sh-field"><span>Brand</span><select id="brand"><option value="">Choose your brand</option><option value="xiaomi">Xiaomi / Mi Home</option><option value="other">Another brand</option></select></label>
+        <label class="sh-field"><span>Brand</span><select id="brand"><option value="">Choose your brand</option><option value="xiaomi">Xiaomi / Mi Home</option><option value="other">Another brand</option><option value="own">My own Home Assistant</option></select></label>
         <label class="sh-field" id="regionf" hidden><span>Xiaomi account region</span><select id="region"></select></label>
         <button id="start" class="sh-primary" type="button" hidden>Sign in to Xiaomi</button>
+      </div>
+      <div id="ownf" hidden>
+        <label class="sh-field"><span>Your Home Assistant address</span><input id="ownurl" class="sh-input" type="url" inputmode="url" autocomplete="off" placeholder="http://192.168.1.20:8123"></label>
+        <label class="sh-field"><span>Long-lived access token</span><input id="owntoken" class="sh-input" type="password" autocomplete="off" placeholder="Profile › Security › Create token"></label>
+        <button id="owngo" class="sh-primary" type="button">Use my Home Assistant</button>
       </div>
       <div id="step2" hidden>
         <p class="sh-help">After you sign in, Xiaomi opens a page that won't load. Copy that page's address and paste it here.</p>
@@ -537,7 +619,7 @@ PAGE_HTML = """<!doctype html>
     </section>
     <section id="list"></section>
     <p id="empty" class="sh-empty" hidden>No devices yet.</p>
-    <footer class="sh-foot"><a id="advanced" target="_blank" rel="noopener">Other brands ↗</a><button id="showlogin" class="sh-quiet" type="button">Home Assistant sign-in</button><span id="login" hidden></span></footer>
+    <footer class="sh-foot"><a id="advanced" target="_blank" rel="noopener">Other brands ↗</a><button id="showlogin" class="sh-quiet" type="button">Home Assistant sign-in</button><button id="ownoff" class="sh-quiet" type="button" hidden>Stop using my own</button><span id="login" hidden></span></footer>
   </main>
   <p id="status" class="sh-status" role="status" aria-live="polite"></p>
 </div>
@@ -612,7 +694,7 @@ PAGE_JS = r"""'use strict';
   async function api(path, data) {
     const r = await fetch('api/' + path, data ? {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data)} : {cache: 'no-store'});
     const b = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(b.error || 'Smart Home is not reachable right now.');
+    if (!r.ok) throw new Error(b.error || 'Home Assistant is not reachable right now.');
     return b;
   }
   const node = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
@@ -688,10 +770,11 @@ PAGE_JS = r"""'use strict';
       const n = st.devices || 0;
       el('line').textContent = !st.ready ? (st.state === 'starting' ? 'Starting…' : 'Needs attention') : (n ? n + (n === 1 ? ' device' : ' devices') : 'Nothing connected yet');
       if (!st.ready) { say(st.next); return setTimeout(load, 8000); }
-      el('connect').hidden = st.xiaomi.connected;
+      el('connect').hidden = st.own || st.xiaomi.connected;
+      el('ownoff').hidden = !st.own; el('advanced').hidden = el('showlogin').hidden = !!st.own;
       if (!el('region').options.length) for (const [k, v] of Object.entries(st.regions)) { const o = node('option', '', v); o.value = k; el('region').appendChild(o); }
       el('region').value = el('region').value || 'us';
-      el('advanced').href = location.protocol + '//' + location.hostname + ':' + st.advanced_port + '/';
+      if (!st.own) el('advanced').href = location.protocol + '//' + location.hostname + ':' + st.advanced_port + '/';
       if (st.xiaomi.connected) say('');
       paintDevices((await api('devices')).devices);
     } catch (e) { say(e.message); setTimeout(load, 10000); }
@@ -714,16 +797,27 @@ PAGE_JS = r"""'use strict';
   el('brand').onchange = () => {
     const b = el('brand').value;
     el('regionf').hidden = el('start').hidden = b !== 'xiaomi';
+    el('ownf').hidden = b !== 'own';
     if (b === 'other') { window.open(el('advanced').href, '_blank', 'noopener'); el('brand').value = ''; }
   };
   el('start').onclick = start;
+  el('owngo').onclick = async () => {
+    el('owngo').disabled = true; say('Connecting…', true);
+    try { const r = await api('own/connect', {url: el('ownurl').value, token: el('owntoken').value}); el('owntoken').value = ''; say('Using ' + r.name + '.', true); await load(); }
+    catch (e) { say(e.message); } finally { el('owngo').disabled = false; }
+  };
+  el('ownoff').onclick = async () => {
+    if (el('ownoff').dataset.armed !== '1') { el('ownoff').dataset.armed = '1'; el('ownoff').textContent = 'Tap again to stop'; return; }
+    el('ownoff').dataset.armed = ''; el('ownoff').textContent = 'Stop using my own';
+    try { await api('own/disconnect', {}); await load(); } catch (e) { say(e.message); }
+  };
   el('finish').onclick = finish;
   el('again').onclick = () => { if (signInUrl) window.open(signInUrl, '_blank', 'noopener'); };
   el('showlogin').onclick = async () => {
     try { const a = await api('login'); el('login').textContent = 'User ' + a.username + ' · password ' + a.password; el('login').hidden = false; el('showlogin').hidden = true; }
     catch (e) { say(e.message); }
   };
-  window.WizardApp?.ready?.({name: 'Smart Home'});
+  window.WizardApp?.ready?.({name: 'Home Assistant'});
   document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
   load();
 })();

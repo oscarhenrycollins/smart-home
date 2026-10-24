@@ -1,19 +1,20 @@
-# Smart Home
+# Home Assistant (Wizard app)
 
-Let your Wizard check and control your smart-home devices: unmodified [Home Assistant](https://www.home-assistant.io) on your box, set up for you.
+[Home Assistant](https://www.home-assistant.io), unmodified, set up and run for you on your Wizard; or a link to the Home Assistant you already run. Your Wizard checks and controls your devices.
 
 A [Wizard app](https://www.aiwizards.com/wizard-apps): install it from the Wizard Apps screen, or with the Wizard App Manager on any box running stock [Runtipi](https://runtipi.io).
 
 - `wizard.md`: what the app is and what it gives the agent (spec: wizard.md v0.2).
 - `runtipi/`: stock Runtipi `config.json` and `docker-compose.yml`. The engine is the official `ghcr.io/home-assistant/home-assistant` image, pinned by digest, unchanged.
-- `mcp/`: the app's front (`front.py` + `tools.py`), inlined into the compose file by `python3 mcp/inline.py`. It creates Home Assistant's owner account on first start, serves the Smart Home page at `/smart-home/` and the agent's tools at `/mcp` (`home_status`, `home_devices`, `home_device`, `home_control`; box-only), and passes everything else unchanged to Home Assistant.
+- `mcp/`: the app's front (`front.py` + `tools.py`), inlined into the compose file by `python3 mcp/inline.py`. It creates Home Assistant's owner account on first start, serves the app's page at `/smart-home/` and the agent's tools at `/mcp` (`home_status`, `home_devices`, `home_device`, `home_control`; box-only), and passes everything else unchanged to Home Assistant.
 - `SKILL.md`: the skill the agent loads when this app is installed.
 
 ## How it works
 
 1. Install. The app creates Home Assistant's owner account and finishes its first-run steps itself. The password lives only in the app's private volume, and the page shows it under "Home Assistant sign-in" if you ever want the full Home Assistant app.
-2. Open Smart Home and connect your devices' brand. Some brands have a sign-in button on the page: tapping it fetches that brand's own Home Assistant integration from the brand's official release (checksum-pinned) onto your box, then you sign in and paste back the address the sign-in ends on (it works from a server that isn't on your home network). Any other brand: tap "Other brands" to open Home Assistant itself.
-3. Ask your agent: "start the vacuum", "what's the air quality at home?", "turn off the living room purifier".
+2. Open the app and connect your devices' brand. Some brands have a sign-in button on the page: tapping it fetches that brand's own Home Assistant integration from the brand's official release (checksum-pinned) onto your box, then you sign in and paste back the address the sign-in ends on (it works from a server that isn't on your home network). Any other brand: tap "Other brands" to open Home Assistant itself.
+3. Already run Home Assistant? Pick "My own Home Assistant" and paste its address and a long-lived access token (Profile, Security). The built-in one then sits idle and the agent uses yours.
+4. Ask your agent: "start the vacuum", "what's the air quality at home?", "turn off the living room purifier".
 
 ## Limits
 

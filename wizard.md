@@ -1,12 +1,12 @@
 ---
 wizard: 0.2
 id: smart-home
-name: Smart Home
+name: Home Assistant
 type: service
 category: app
 tags: [automation]
-version: 0.1.6
-summary: Let your Wizard check and control your smart-home devices, like purifiers, vacuums, lights and plugs.
+version: 0.2.0
+summary: Home Assistant, set up and run for you. Your Wizard checks and controls your purifiers, vacuums, lights and plugs.
 icon: icon.png
 license: Apache-2.0
 source: https://github.com/oscarhenrycollins/smart-home
@@ -27,12 +27,12 @@ view:
   port: 8080
 ---
 
-# Smart Home
+# Home Assistant
 
-Your Wizard's link to the devices in your home: unmodified [Home Assistant](https://www.home-assistant.io) on your box, set up for you.
+[Home Assistant](https://www.home-assistant.io), the open-source smart-home hub, set up and run for you on your Wizard. You never have to open it yourself: you talk to your agent.
 
-- **You** open Smart Home, sign in to your device brand once, and see every device by room with on/off switches.
-- **Your agent** checks and controls devices for you: "start the vacuum", "is the air bad at home?", "put the purifier in sleep mode".
-- **Any brand Home Assistant supports** can be added from the app's "Other brands" link.
+- **Connect your devices** once: pick your brand and sign in. It works with any brand Home Assistant supports.
+- **Already run Home Assistant at home?** Choose "My own Home Assistant" and paste its address and an access token instead. Local-only devices like Zigbee and Bluetooth then work too.
+- **Your agent** checks and controls your devices: "start the vacuum", "is the air bad at home?", "put the purifier on sleep".
 
-Camera video stays in the brand's own app; agents can switch cameras on, off or into privacy mode only. Unlocking doors or disarming alarms always needs your yes.
+Camera video stays in the brand's own app. Unlocking doors or disarming alarms always needs your yes.

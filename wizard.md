@@ -5,7 +5,7 @@ name: Smart Home
 type: service
 category: app
 tags: [automation]
-version: 0.1.2
+version: 0.1.3
 summary: Let your Wizard check and control your smart-home devices, like purifiers, vacuums, lights and plugs.
 icon: icon.png
 license: Apache-2.0

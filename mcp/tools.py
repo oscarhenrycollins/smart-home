@@ -287,8 +287,8 @@ def status():
            "xiaomi": {"connected": bool(xiaomi), "sign_in_started": bool(pending and not xiaomi)},
            "home_page": PAGE, "camera_video": False}
     if not connected:
-        out["next"] = ("No devices connected yet. Ask the owner to open the Smart Home app and tap \"Sign in to "
-                       "Xiaomi\" (sign-in is the owner's own step; you cannot do it for them). Any other brand: the "
+        out["next"] = ("No devices connected yet. Ask the owner to open the Smart Home app and pick their brand "
+                       "(Xiaomi signs in right there) (sign-in is the owner's own step; you cannot do it for them). Any other brand: the "
                        "app's \"Other brands\" button opens Home Assistant itself.")
     else:
         out["next"] = "Use home_devices to see what is there, then home_control to act."
@@ -503,10 +503,11 @@ PAGE_HTML = """<!doctype html>
   <header class="sh-head"><h1>Smart Home</h1><p id="line" class="sh-line">Loading…</p></header>
   <main class="sh-scroll">
     <section id="connect" class="sh-card" hidden>
-      <h2>Connect Xiaomi</h2>
+      <h2>Connect your devices</h2>
       <div id="step1">
-        <label class="sh-field"><span>Xiaomi account region</span><select id="region"></select></label>
-        <button id="start" class="sh-primary" type="button">Sign in to Xiaomi</button>
+        <label class="sh-field"><span>Brand</span><select id="brand"><option value="">Choose your brand</option><option value="xiaomi">Xiaomi / Mi Home</option><option value="other">Another brand</option></select></label>
+        <label class="sh-field" id="regionf" hidden><span>Xiaomi account region</span><select id="region"></select></label>
+        <button id="start" class="sh-primary" type="button" hidden>Sign in to Xiaomi</button>
       </div>
       <div id="step2" hidden>
         <p class="sh-help">After you sign in, Xiaomi opens a page that won't load. Copy that page's address and paste it here.</p>
@@ -628,6 +629,7 @@ PAGE_JS = r"""'use strict';
       if (!st.ready) { say(st.next); return setTimeout(load, 8000); }
       el('connect').hidden = st.xiaomi.connected;
       if (!el('region').options.length) for (const [k, v] of Object.entries(st.regions)) { const o = node('option', '', v); o.value = k; el('region').appendChild(o); }
+      el('region').value = el('region').value || 'us';
       el('advanced').href = location.protocol + '//' + location.hostname + ':' + st.advanced_port + '/';
       if (st.xiaomi.connected) say('');
       paintDevices((await api('devices')).devices);
@@ -648,6 +650,11 @@ PAGE_JS = r"""'use strict';
     try { await api('xiaomi/finish', {url: el('paste').value}); el('paste').value = ''; el('step2').hidden = true; el('step1').hidden = false; say('Xiaomi connected.', true); await load(); }
     catch (e) { say(e.message); } finally { el('finish').disabled = false; }
   }
+  el('brand').onchange = () => {
+    const b = el('brand').value;
+    el('regionf').hidden = el('start').hidden = b !== 'xiaomi';
+    if (b === 'other') { window.open(el('advanced').href, '_blank', 'noopener'); el('brand').value = ''; }
+  };
   el('start').onclick = start;
   el('finish').onclick = finish;
   el('again').onclick = () => { if (signInUrl) window.open(signInUrl, '_blank', 'noopener'); };

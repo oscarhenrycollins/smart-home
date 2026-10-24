@@ -5,7 +5,7 @@ name: Home Assistant
 type: service
 category: app
 tags: [automation]
-version: 0.2.0
+version: 0.2.1
 summary: Home Assistant, set up and run for you. Your Wizard checks and controls your purifiers, vacuums, lights and plugs.
 icon: icon.png
 license: Apache-2.0

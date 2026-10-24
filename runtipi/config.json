@@ -10,8 +10,8 @@
     "utilities"
   ],
   "description": "Home Assistant, the open-source smart-home hub, set up and run for you on your own box. Pick your device brand and sign in once, and your agent checks and controls your devices: purifiers, vacuums, lights, plugs and sensors. Already run Home Assistant at home? Choose 'My own Home Assistant' and paste its address and an access token instead; local-only devices (Zigbee, Bluetooth) then work too. Camera video stays in the brand's own app. Unlocking doors or disarming alarms always needs your yes. Keep it on your private network (e.g. Tailscale).",
-  "tipi_version": 9,
-  "version": "0.2.0",
+  "tipi_version": 10,
+  "version": "0.2.1",
   "source": "https://github.com/oscarhenrycollins/smart-home",
   "website": "https://www.home-assistant.io",
   "exposable": false,
@@ -20,7 +20,7 @@
     "arm64"
   ],
   "created_at": 1792768000000,
-  "updated_at": 1792807836301,
+  "updated_at": 1792808316230,
   "dynamic_config": true,
   "min_tipi_version": "4.8.0",
   "form_fields": []

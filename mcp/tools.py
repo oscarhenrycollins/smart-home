@@ -187,6 +187,34 @@ def own_disconnect():
     return {"own": False}
 
 
+def ha_bytes(path, timeout=30):
+    """Raw bytes (e.g. a camera snapshot) from the built-in or the owner's own Home Assistant."""
+    own = _own()
+    if own:
+        import ssl
+        req = urllib.request.Request(own["url"] + path, headers={"Authorization": "Bearer " + own["token"]})
+        with urllib.request.urlopen(req, timeout=timeout, context=ssl.create_default_context()) as r:
+            return r.read(10 << 20)
+    status, raw = http("GET", path, None, {"Authorization": "Bearer " + _access()}, timeout=timeout)
+    return raw
+
+
+NO_VIDEO = ("This camera's brand encrypts its video so only the brand's own phone app can play it; Home Assistant "
+            "(and so your Wizard) only gets its settings. To let your Wizard see it, a spare Android phone signed in "
+            "to that app has to be connected to your Wizard. Until then, watch it live in the brand's app. Cameras "
+            "that stream openly (most RTSP/ONVIF cameras, e.g. Reolink, Tapo, Amcrest) work directly.")
+
+
+def cameras(devs=None):
+    devs = devs if devs is not None else devices()
+    video = [d for d in devs if d["kind"] == "camera"]
+    with_video = {d["device"] or d["name"] for d in video}
+    app_only = sorted({g["device"] for g in grouped(devs) if g["device"] not in with_video and (
+        "camera" in g["device"].lower() or any(".camera" in x["entity_id"] or "_camera_" in x["entity_id"]
+                                               for x in g["parts"]))})
+    return video, app_only
+
+
 def ha(method, path, payload=None, timeout=30):
     own = _own()
     if own:
@@ -346,7 +374,7 @@ def _entries():
 def status():
     own = _own()
     if own:
-        out = {"own": True, "home": own.get("name"), "address": own["url"], "home_page": PAGE, "camera_video": False}
+        out = {"own": True, "home": own.get("name"), "address": own["url"], "home_page": PAGE}
         try:
             devs = devices()
             out.update(ready=True, state="ready", connected=[{"brand": "Your Home Assistant", "integration": "own",
@@ -373,7 +401,7 @@ def status():
     out = {"ready": True, "state": "ready", "connected": connected, "devices": len(grouped(devs)), "parts": len(devs),
            "controllable": sum(1 for d in devs if d["controllable"]),
            "xiaomi": {"connected": bool(xiaomi), "sign_in_started": bool(pending and not xiaomi)},
-           "home_page": PAGE, "camera_video": False, "own": False}
+           "home_page": PAGE, "own": False}
     if not connected:
         out["next"] = ("No devices connected yet. Ask the owner to open the Home Assistant app and pick their brand "
                        "(Xiaomi signs in right there), or choose \"My own Home Assistant\" if they already run one. "
@@ -381,6 +409,10 @@ def status():
                        "\"Other brands\" button opens Home Assistant's own setup.")
     else:
         out["next"] = "Use home_devices to see what is there, then home_control to act."
+    video, app_only = cameras(devs)
+    out["cameras"] = {"with_video": [d["name"] for d in video], "app_only": app_only}
+    if app_only:
+        out["cameras"]["app_only_note"] = NO_VIDEO
     return out
 
 
@@ -506,6 +538,29 @@ def home_device(entity_id):
     return {"entity_id": entity_id, "state": s.get("state"), "attributes": s.get("attributes"),
             "last_changed": s.get("last_changed"), "controllable": domain in CONTROL,
             "actions": _actions(domain) if domain in CONTROL else []}
+
+
+@tool("home_camera", "See what a camera sees: returns a current snapshot picture when Home Assistant can read that "
+      "camera's video. When the brand encrypts its video (e.g. Xiaomi), it explains in plain words what the owner "
+      "needs instead; tell them that. Call it whenever the owner asks to see, show or check a camera.",
+      {"name": {"type": "string", "description": "Part of the camera's name or room (optional; default the first camera)"}})
+def home_camera(name=""):
+    _box_only()
+    import base64
+    devs = devices()
+    video, app_only = cameras(devs)
+    q = str(name or "").lower()
+    pick = [d for d in video if not q or q in (d["name"] + " " + d["device"] + " " + d["room"] + " " + d["entity_id"]).lower()]
+    if pick:
+        d = pick[0]
+        data = ha_bytes("/api/camera_proxy/" + d["entity_id"])
+        mime = "image/png" if data[:8] == b"\x89PNG\r\n\x1a\n" else "image/jpeg"
+        return {"_content": [{"type": "image", "data": base64.b64encode(data).decode(), "mimeType": mime},
+                             {"type": "text", "text": "Snapshot from %s (%s), taken just now." % (d["name"], d["entity_id"])}]}
+    names = [n for n in app_only if not q or q in n.lower()] or app_only
+    if names:
+        return {"video": False, "cameras": names, "why": NO_VIDEO}
+    return {"video": False, "cameras": [], "why": "No cameras are connected to Home Assistant."}
 
 
 @tool("home_control", "Control one device: turn on or off, start or dock a vacuum, set a purifier's mode or speed, "

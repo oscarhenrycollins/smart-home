@@ -601,6 +601,10 @@ def page_route(method, path, query, headers, body):
             return 200, "text/javascript; charset=utf-8", PAGE_JS.encode()
         if method == "GET" and sub == "app.css":
             return 200, "text/css; charset=utf-8", PAGE_CSS.encode()
+        if method == "GET" and sub in globals().get("VENDOR", {}):
+            import base64
+            kind = "text/css" if sub.endswith(".css") else "text/javascript"
+            return 200, kind + "; charset=utf-8", base64.b64decode(VENDOR[sub])
         if method == "GET" and sub == "healthz":
             return _json(200, {"ok": True, "app": APP, "version": VERSION, "home_assistant": _ha_up() is not None})
         if method == "GET" and sub == "api/status":
@@ -645,14 +649,16 @@ PAGE_HTML = """<!doctype html>
 <meta name="color-scheme" content="dark light">
 <title>Home Assistant</title>
 <script>try { if (window.parent !== window) document.documentElement.classList.add('wz-hosted'); } catch (e) { document.documentElement.classList.add('wz-hosted'); }</script>
+<link rel="stylesheet" href="wizard-layout.css">
 <link rel="stylesheet" href="app.css">
 <script src="/wizard-os-home/core/app-client.js" onerror="this.remove()"></script>
 <script defer src="app.js"></script>
+<script defer src="wizard-sheet.js"></script>
 </head>
 <body>
-<div class="sh-app">
-  <header class="sh-head"><h1>Home Assistant</h1><p id="line" class="sh-line">Loading…</p></header>
-  <main class="sh-scroll">
+<div class="wz-app sh-app">
+  <header class="wz-head sh-head"><h1>Home Assistant</h1><p id="line" class="sh-line">Loading…</p></header>
+  <main class="wz-scroll sh-scroll">
     <section id="connect" class="sh-card" hidden>
       <h2>Connect your devices</h2>
       <div id="step1">
@@ -696,12 +702,13 @@ button, input, select { font: inherit; color: inherit; }
 button { cursor: pointer; border: 0; background: none; padding: 0; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 [hidden] { display: none !important; }
-.sh-app { display: flex; flex-direction: column; height: 100%; max-width: 680px; margin: 0 auto; }
-.sh-head { flex: none; padding: 18px 14px 6px; }
+/* Design rules v0: the window is the page. No max-width; .wz-app (wizard-layout.css) is the container the columns measure. */
+.sh-app { display: flex; flex-direction: column; height: 100%; }
+.sh-head { flex: none; padding: 18px var(--wz-gutter, 14px) 6px; }
 .sh-head h1 { margin: 0; font-size: 26px; font-weight: 750; letter-spacing: -.02em; }
 html.wz-hosted .sh-head h1 { display: none; }
 .sh-line { margin: 2px 0 0; color: var(--ink-2); font-size: 14px; }
-.sh-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 6px 14px 120px; }
+.sh-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 6px var(--wz-gutter, 14px) 120px; }
 .sh-card { background: var(--solid); border: 1px solid var(--line); border-radius: 16px; padding: 16px; margin: 6px 0 16px; }
 .sh-card h2 { margin: 0 0 12px; font-size: 17px; }
 .sh-field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; font-size: 13px; color: var(--ink-2); }
@@ -712,6 +719,10 @@ html.wz-hosted .sh-head h1 { display: none; }
 .sh-primary:disabled { opacity: .55; cursor: progress; }
 .sh-quiet { min-height: 40px; margin-top: 6px; padding: 0 12px; border-radius: 99px; border: 1px solid var(--line); background: var(--solid); color: var(--ink-2); font-size: 13px; }
 .sh-room { margin: 14px 4px 6px; font-size: 13px; font-weight: 700; color: var(--ink-2); }
+/* Rooms: one column when narrow, two at medium, as many 300px+ columns as fit when wide. */
+#list { display: grid; grid-template-columns: minmax(0, 1fr); column-gap: 14px; align-items: start; }
+@container wz-app (min-width: 600px) { #list { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@container wz-app (min-width: 960px) { #list { grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); } }
 .sh-rows { list-style: none; margin: 0; padding: 0; background: var(--solid); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; }
 .sh-row { display: flex; align-items: center; gap: 12px; min-height: 54px; padding: 8px 14px; }
 .sh-row + .sh-row { border-top: 1px solid var(--line); }
@@ -786,7 +797,8 @@ PAGE_JS = r"""'use strict';
     }
     const frag = []; let count = 0;
     for (const [room, devs] of rooms) {
-      frag.push(node('h3', 'sh-room', room));
+      const sec = node('section', 'sh-roomsec');
+      sec.appendChild(node('h3', 'sh-room', room));
       const ul = node('ul', 'sh-rows');
       for (const [name, items] of devs) {
         count++;
@@ -808,7 +820,7 @@ PAGE_JS = r"""'use strict';
         if (more.children.length) det.appendChild(more); else sum.classList.add('sh-nomore');
         li.appendChild(det); ul.appendChild(li);
       }
-      frag.push(ul);
+      sec.appendChild(ul); frag.push(sec);
     }
     el('list').replaceChildren(...frag);
     if (st && st.ready) el('line').textContent = count ? count + (count === 1 ? ' device' : ' devices') : 'Nothing connected yet';

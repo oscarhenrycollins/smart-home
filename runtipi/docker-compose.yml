@@ -16,7 +16,7 @@ services:
     mem_limit: 256m
     environment:
       WIZARD_APP: smart-home
-      APP_VERSION: 0.2.1
+      APP_VERSION: 0.2.2
       FRONT_PORT: '8080'
       UPSTREAM_HOST: smart-home-engine
       UPSTREAM_PORT: '8123'
@@ -858,6 +858,10 @@ services:
                   return 200, "text/javascript; charset=utf-8", PAGE_JS.encode()
               if method == "GET" and sub == "app.css":
                   return 200, "text/css; charset=utf-8", PAGE_CSS.encode()
+              if method == "GET" and sub in globals().get("VENDOR", {}):
+                  import base64
+                  kind = "text/css" if sub.endswith(".css") else "text/javascript"
+                  return 200, kind + "; charset=utf-8", base64.b64decode(VENDOR[sub])
               if method == "GET" and sub == "healthz":
                   return _json(200, {"ok": True, "app": APP, "version": VERSION, "home_assistant": _ha_up() is not None})
               if method == "GET" and sub == "api/status":
@@ -902,14 +906,16 @@ services:
       <meta name="color-scheme" content="dark light">
       <title>Home Assistant</title>
       <script>try { if (window.parent !== window) document.documentElement.classList.add('wz-hosted'); } catch (e) { document.documentElement.classList.add('wz-hosted'); }</script>
+      <link rel="stylesheet" href="wizard-layout.css">
       <link rel="stylesheet" href="app.css">
       <script src="/wizard-os-home/core/app-client.js" onerror="this.remove()"></script>
       <script defer src="app.js"></script>
+      <script defer src="wizard-sheet.js"></script>
       </head>
       <body>
-      <div class="sh-app">
-        <header class="sh-head"><h1>Home Assistant</h1><p id="line" class="sh-line">Loading…</p></header>
-        <main class="sh-scroll">
+      <div class="wz-app sh-app">
+        <header class="wz-head sh-head"><h1>Home Assistant</h1><p id="line" class="sh-line">Loading…</p></header>
+        <main class="wz-scroll sh-scroll">
           <section id="connect" class="sh-card" hidden>
             <h2>Connect your devices</h2>
             <div id="step1">
@@ -953,12 +959,13 @@ services:
       button { cursor: pointer; border: 0; background: none; padding: 0; }
       :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
       [hidden] { display: none !important; }
-      .sh-app { display: flex; flex-direction: column; height: 100%; max-width: 680px; margin: 0 auto; }
-      .sh-head { flex: none; padding: 18px 14px 6px; }
+      /* Design rules v0: the window is the page. No max-width; .wz-app (wizard-layout.css) is the container the columns measure. */
+      .sh-app { display: flex; flex-direction: column; height: 100%; }
+      .sh-head { flex: none; padding: 18px var(--wz-gutter, 14px) 6px; }
       .sh-head h1 { margin: 0; font-size: 26px; font-weight: 750; letter-spacing: -.02em; }
       html.wz-hosted .sh-head h1 { display: none; }
       .sh-line { margin: 2px 0 0; color: var(--ink-2); font-size: 14px; }
-      .sh-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 6px 14px 120px; }
+      .sh-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 6px var(--wz-gutter, 14px) 120px; }
       .sh-card { background: var(--solid); border: 1px solid var(--line); border-radius: 16px; padding: 16px; margin: 6px 0 16px; }
       .sh-card h2 { margin: 0 0 12px; font-size: 17px; }
       .sh-field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; font-size: 13px; color: var(--ink-2); }
@@ -969,6 +976,10 @@ services:
       .sh-primary:disabled { opacity: .55; cursor: progress; }
       .sh-quiet { min-height: 40px; margin-top: 6px; padding: 0 12px; border-radius: 99px; border: 1px solid var(--line); background: var(--solid); color: var(--ink-2); font-size: 13px; }
       .sh-room { margin: 14px 4px 6px; font-size: 13px; font-weight: 700; color: var(--ink-2); }
+      /* Rooms: one column when narrow, two at medium, as many 300px+ columns as fit when wide. */
+      #list { display: grid; grid-template-columns: minmax(0, 1fr); column-gap: 14px; align-items: start; }
+      @container wz-app (min-width: 600px) { #list { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+      @container wz-app (min-width: 960px) { #list { grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); } }
       .sh-rows { list-style: none; margin: 0; padding: 0; background: var(--solid); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; }
       .sh-row { display: flex; align-items: center; gap: 12px; min-height: 54px; padding: 8px 14px; }
       .sh-row + .sh-row { border-top: 1px solid var(--line); }
@@ -1043,7 +1054,8 @@ services:
           }
           const frag = []; let count = 0;
           for (const [room, devs] of rooms) {
-            frag.push(node('h3', 'sh-room', room));
+            const sec = node('section', 'sh-roomsec');
+            sec.appendChild(node('h3', 'sh-room', room));
             const ul = node('ul', 'sh-rows');
             for (const [name, items] of devs) {
               count++;
@@ -1065,7 +1077,7 @@ services:
               if (more.children.length) det.appendChild(more); else sum.classList.add('sh-nomore');
               li.appendChild(det); ul.appendChild(li);
             }
-            frag.push(ul);
+            sec.appendChild(ul); frag.push(sec);
           }
           el('list').replaceChildren(...frag);
           if (st && st.ready) el('line').textContent = count ? count + (count === 1 ? ' device' : ' devices') : 'Nothing connected yet';
@@ -1134,6 +1146,10 @@ services:
         load();
       })();
       """
+
+
+      # ---- vendored design-rules files (generated by mcp/inline.py from web/) ----
+      VENDOR = {'wizard-layout.css': 'LyogV2l6YXJkIGFwcCBsYXlvdXQgcnVsZXMgdjAgKHdpemFyZC1vcyBzdHlsZS9BUFAtREVTSUdOLVJVTEVTLm1kLCBQUiBodW1hbml0eWxhYnMtb3JnL3dpemFyZC1vcyMyNjUpLgogKiBWZW5kb3JlZCBjb3B5IGZvciBhcHBzIHVudGlsIHRoZSBzaGVsbCdzIGxpdmUga2l0ICgvd2l6YXJkLW9zLWhvbWUva2l0L3dpemFyZC11aS5jc3MpIGNhcnJpZXMgdGhlc2UgcnVsZXMuCiAqIExvYWQgQUZURVIgd2l6YXJkLXVpLmNzcyBhbmQgQkVGT1JFIHRoZSBhcHAncyBzdHlsZXMuY3NzLiBEZWxldGUgdGhpcyBmaWxlIG9uY2UgdGhlIGxpdmUga2l0IGhhcyB0aGVtLiAqLwoud3otYXBwIHsgbWF4LXdpZHRoOiBub25lOyBtYXJnaW46IDA7IH0KLyogVGhlIHdpbmRvdyBpcyB0aGUgcGFnZSAoQVBQLURFU0lHTi1SVUxFUy5tZCBydWxlIDEtMik6IG5vIG1heC13aWR0aDsgY29sdW1ucyBncm93IHdpdGggdGhlIHdpbmRvdywgbWVhc3VyZWQgb24gLnd6LWFwcC4gKi8KLnd6LWFwcCB7IC0td3otZ3V0dGVyOiAxMnB4OyBkaXNwbGF5OiBmbGV4OyBmbGV4LWRpcmVjdGlvbjogY29sdW1uOyBoZWlnaHQ6IDEwMCU7IGNvbnRhaW5lcjogd3otYXBwIC8gaW5saW5lLXNpemU7IH0KQGNvbnRhaW5lciB3ei1hcHAgKG1pbi13aWR0aDogNjAwcHgpIHsgLnd6LXNjcm9sbCwgLnd6LWhlYWQgeyAtLXd6LWd1dHRlcjogMjBweDsgfSB9CkBjb250YWluZXIgd3otYXBwIChtaW4td2lkdGg6IDk2MHB4KSB7IC53ei1zY3JvbGwsIC53ei1oZWFkIHsgLS13ei1ndXR0ZXI6IDI4cHg7IH0gfQoud3otc2Nyb2xsIHsgcGFkZGluZy1sZWZ0OiB2YXIoLS13ei1ndXR0ZXIsIDEwcHgpOyBwYWRkaW5nLXJpZ2h0OiB2YXIoLS13ei1ndXR0ZXIsIDEwcHgpOyB9CgovKiAtLS0tLS0tLS0tIGxheW91dCBoZWxwZXJzIChydWxlcyAxLCAyLCA1KSAtLS0tLS0tLS0tICovCi53ei1ncmlkIHsgZGlzcGxheTogZ3JpZDsgZ2FwOiB2YXIoLS13ei1zcGFjZS0zKTsgZ3JpZC10ZW1wbGF0ZS1jb2x1bW5zOiAxZnI7IH0KQGNvbnRhaW5lciB3ei1hcHAgKG1pbi13aWR0aDogNjAwcHgpIHsgLnd6LWdyaWQgeyBncmlkLXRlbXBsYXRlLWNvbHVtbnM6IHJlcGVhdCgyLCBtaW5tYXgoMCwgMWZyKSk7IH0gfQpAY29udGFpbmVyIHd6LWFwcCAobWluLXdpZHRoOiA5NjBweCkgeyAud3otZ3JpZCB7IGdyaWQtdGVtcGxhdGUtY29sdW1uczogcmVwZWF0KGF1dG8tZmlsbCwgbWlubWF4KDMwMHB4LCAxZnIpKTsgfSB9Ci53ei1wcm9zZSB7IG1heC13aWR0aDogNzJjaDsgfQoud3otcGlsbCB7IGRpc3BsYXk6IGlubGluZS1mbGV4OyBhbGlnbi1pdGVtczogY2VudGVyOyBnYXA6IDZweDsgcGFkZGluZzogM3B4IDEwcHg7IGJvcmRlci1yYWRpdXM6IHZhcigtLXItcGlsbCk7IGZvbnQtc2l6ZTogMTIuNXB4OyBmb250LXdlaWdodDogNjUwOyBjb2xvcjogdmFyKC0taW5rLTIpOyBiYWNrZ3JvdW5kOiB2YXIoLS1maWxsKTsgd2hpdGUtc3BhY2U6IG5vd3JhcDsgfQoud3otcGlsbDo6YmVmb3JlIHsgY29udGVudDogIiI7IHdpZHRoOiA3cHg7IGhlaWdodDogN3B4OyBib3JkZXItcmFkaXVzOiA1MCU7IGJhY2tncm91bmQ6IGN1cnJlbnRDb2xvcjsgfQoud3otcGlsbC5vayB7IGNvbG9yOiB2YXIoLS13ei1zdWNjZXNzLCB2YXIoLS1hY2NlbnQpKTsgfQoud3otcGlsbC53YXJuIHsgY29sb3I6IHZhcigtLXd6LXdhcm5pbmcsIHZhcigtLWRhbmdlcikpOyB9Ci53ei1waWxsLm9mZiB7IGNvbG9yOiB2YXIoLS1pbmstMyk7IH0KLnd6LW1ldGVyIHsgZGlzcGxheTogZ3JpZDsgZ2FwOiA0cHg7IGZvbnQtc2l6ZTogMTIuNXB4OyBjb2xvcjogdmFyKC0taW5rLTMpOyB9Ci53ei1tZXRlciA+IGkgeyBkaXNwbGF5OiBibG9jazsgaGVpZ2h0OiA2cHg7IGJvcmRlci1yYWRpdXM6IDNweDsgYmFja2dyb3VuZDogdmFyKC0tZmlsbC0yKTsgb3ZlcmZsb3c6IGhpZGRlbjsgfQoud3otbWV0ZXIgPiBpID4gYiB7IGRpc3BsYXk6IGJsb2NrOyBoZWlnaHQ6IDEwMCU7IHdpZHRoOiB2YXIoLS12LCAwJSk7IGJvcmRlci1yYWRpdXM6IGluaGVyaXQ7IGJhY2tncm91bmQ6IHZhcigtLWFjY2VudCk7IH0KLnd6LWNvbm4geyBkaXNwbGF5OiBmbGV4OyBhbGlnbi1pdGVtczogY2VudGVyOyBnYXA6IHZhcigtLXd6LXNwYWNlLTMpOyBwYWRkaW5nOiB2YXIoLS13ei1zcGFjZS00KTsgYm9yZGVyOiAxcHggc29saWQgdmFyKC0tbGluZSk7IGJvcmRlci1yYWRpdXM6IHZhcigtLXIpOyBiYWNrZ3JvdW5kOiB2YXIoLS1maWxsKTsgfQoud3otY29ubiAud3otdGlsZSB7IHdpZHRoOiA0OHB4OyBoZWlnaHQ6IDQ4cHg7IGJvcmRlci1yYWRpdXM6IDE0cHg7IH0KLnd6LWNvbm4gLnd6LW1haW4geyBmbGV4OiAxOyBtaW4td2lkdGg6IDA7IGRpc3BsYXk6IGdyaWQ7IGdhcDogM3B4OyB9Ci53ei1jb25uIC53ei1tYWluIGIgeyBmb250LXNpemU6IDE3cHg7IGZvbnQtd2VpZ2h0OiA3MDA7IH0KLnd6LWNvbm4gLnd6LW1haW4gc21hbGwgeyBmb250LXNpemU6IDEzcHg7IGNvbG9yOiB2YXIoLS1pbmstMyk7IH0KLnd6LWFjdGlvbnMgeyBkaXNwbGF5OiBmbGV4OyBmbGV4LXdyYXA6IHdyYXA7IGdhcDogdmFyKC0td3otc3BhY2UtMik7IHBhZGRpbmc6IHZhcigtLXd6LXNwYWNlLTMpIDA7IH0KLnd6LW1vcmUgeyBtYXJnaW4tdG9wOiB2YXIoLS13ei1zcGFjZS00KTsgY29sb3I6IHZhcigtLWluay0zKTsgZm9udC1zaXplOiAxM3B4OyB9Ci53ei1tb3JlID4gc3VtbWFyeSB7IGN1cnNvcjogcG9pbnRlcjsgcGFkZGluZzogOHB4OyBsaXN0LXN0eWxlOiBub25lOyBmb250LXdlaWdodDogNjUwOyBjb2xvcjogdmFyKC0taW5rLTIpOyB9Ci53ei1tb3JlID4gc3VtbWFyeTo6LXdlYmtpdC1kZXRhaWxzLW1hcmtlciB7IGRpc3BsYXk6IG5vbmU7IH0KCi8qIC0tLS0tLS0tLS0gdGhlIG9uZSBwb3AtdXAgKHJ1bGUgNCk6IGJvdHRvbSBzaGVldCB3aGVuIG5hcnJvdywgY2VudHJlZCBjYXJkIHdoZW4gd2lkZS4gQmVoYXZpb3VyOiBzdHlsZS9zaGVldC5qcyAtLS0tLS0tLS0tICovCi53ei1zaGVldCB7IGNvbG9yOiB2YXIoLS1pbmspOyBiYWNrZ3JvdW5kOiB2YXIoLS13ei1vdmVybGF5KTsgYm9yZGVyOiAxcHggc29saWQgdmFyKC0tbGluZS0yKTsgYm9yZGVyLXJhZGl1czogdmFyKC0tcik7IHBhZGRpbmc6IHZhcigtLXd6LXNwYWNlLTQpOyB3aWR0aDogbWluKDUyMHB4LCBjYWxjKDEwMCUgLSAyNHB4KSk7IG1heC13aWR0aDogbm9uZTsgbWF4LWhlaWdodDogODUlOyBvdmVyZmxvdzogYXV0bzsgYmFja2Ryb3AtZmlsdGVyOiBibHVyKDIwcHgpOyAtd2Via2l0LWJhY2tkcm9wLWZpbHRlcjogYmx1cigyMHB4KTsgfQoud3otc2hlZXQ6OmJhY2tkcm9wIHsgYmFja2dyb3VuZDogY29sb3ItbWl4KGluIHNyZ2IsIHZhcigtLXd6LWJhc2UpIDc0JSwgdHJhbnNwYXJlbnQpOyB9Ci53ei1zaGVldC14IHsgcG9zaXRpb246IHN0aWNreTsgdG9wOiAwOyBmbG9hdDogcmlnaHQ7IHdpZHRoOiAzNnB4OyBoZWlnaHQ6IDM2cHg7IG1hcmdpbjogLTZweCAtNnB4IDAgOHB4OyBib3JkZXItcmFkaXVzOiA1MCU7IGRpc3BsYXk6IGdyaWQ7IHBsYWNlLWl0ZW1zOiBjZW50ZXI7IGNvbG9yOiB2YXIoLS1pbmstMik7IGJhY2tncm91bmQ6IHZhcigtLWZpbGwpOyBmb250LXNpemU6IDE4cHg7IGxpbmUtaGVpZ2h0OiAxOyB6LWluZGV4OiAxOyB9Ci53ei1zaGVldC1ncmlwIHsgZGlzcGxheTogbm9uZTsgfQoud3otc2hlZXQgPiBoMiB7IG1hcmdpbjogMCAwIHZhcigtLXd6LXNwYWNlLTMpOyBmb250LXNpemU6IDE3cHg7IGZvbnQtd2VpZ2h0OiA3MDA7IH0KQG1lZGlhIChtYXgtd2lkdGg6IDU5OXB4KSB7CiAgLnd6LXNoZWV0IHsgd2lkdGg6IDEwMCU7IG1heC13aWR0aDogMTAwJTsgbWFyZ2luOiBhdXRvIDAgMDsgYm9yZGVyLXJhZGl1czogMjJweCAyMnB4IDAgMDsgYm9yZGVyLWJvdHRvbTogMDsgbWF4LWhlaWdodDogODglOyBwYWRkaW5nOiA2cHggdmFyKC0td3otc3BhY2UtNCkgY2FsYyh2YXIoLS13ei1zcGFjZS00KSArIGVudihzYWZlLWFyZWEtaW5zZXQtYm90dG9tLCAwcHgpKTsgfQogIC53ei1zaGVldFtvcGVuXSB7IGFuaW1hdGlvbjogd3otc2hlZXQtdXAgMjIwbXMgdmFyKC0tZWFzZSwgZWFzZS1vdXQpOyB9CiAgLnd6LXNoZWV0LWdyaXAgeyBkaXNwbGF5OiBibG9jazsgd2lkdGg6IDQwcHg7IGhlaWdodDogNXB4OyBtYXJnaW46IDRweCBhdXRvIDEwcHg7IGJvcmRlci1yYWRpdXM6IDNweDsgYmFja2dyb3VuZDogdmFyKC0tbGluZS0yKTsgdG91Y2gtYWN0aW9uOiBub25lOyB9Cn0KQGtleWZyYW1lcyB3ei1zaGVldC11cCB7IGZyb20geyB0cmFuc2Zvcm06IHRyYW5zbGF0ZVkoNDBweCk7IG9wYWNpdHk6IC42OyB9IH0K', 'wizard-sheet.js': 'LyogV2l6YXJkIFVJIGtpdCDCtyB0aGUgb25lIHBvcC11cCAoQVBQLURFU0lHTi1SVUxFUy5tZCBydWxlIDQpLgogKiBVc2U6IDxkaWFsb2cgY2xhc3M9Ind6LXNoZWV0Ij48aDI+VGl0bGU8L2gyPuKApjwvZGlhbG9nPiwgdGhlbiBXelNoZWV0Lm9wZW4oZGlhbG9nKS4KICogQWRkcyB0aGUgZ3JpcCBhbmQgw5cgaWYgbWlzc2luZywgYW5kIGNsb3NlcyBmaXZlIHdheXM6IMOXLCBFc2MgKG5hdGl2ZSksIHRhcCBvdXRzaWRlLCBCYWNrCiAqICh3aW5kb3cuX193aXphcmRDbG9zZU92ZXJsYXksIHdoaWNoIHRoZSBzaGVsbCBjYWxscykgYW5kIGEgZG93bndhcmQgc3dpcGUgb24gdGhlIGdyaXAuIE5vIGRlcGVuZGVuY2llcy4gKi8KKCgpID0+IHsKICAndXNlIHN0cmljdCc7CiAgY29uc3Qgb3BlbiA9IFtdOwogIGZ1bmN0aW9uIHdpcmUoZCkgewogICAgaWYgKGQuX193eikgcmV0dXJuIGQ7IGQuX193eiA9IHRydWU7CiAgICBpZiAoIWQucXVlcnlTZWxlY3RvcignOnNjb3BlID4gLnd6LXNoZWV0LWdyaXAnKSkgZC5pbnNlcnRBZGphY2VudEhUTUwoJ2FmdGVyYmVnaW4nLCAnPGRpdiBjbGFzcz0id3otc2hlZXQtZ3JpcCIgYXJpYS1oaWRkZW49InRydWUiPjwvZGl2PicpOwogICAgaWYgKCFkLnF1ZXJ5U2VsZWN0b3IoJzpzY29wZSA+IC53ei1zaGVldC14JykpIGQucXVlcnlTZWxlY3RvcignOnNjb3BlID4gLnd6LXNoZWV0LWdyaXAnKS5pbnNlcnRBZGphY2VudEhUTUwoJ2FmdGVyZW5kJywgJzxidXR0b24gdHlwZT0iYnV0dG9uIiBjbGFzcz0id3otc2hlZXQteCIgYXJpYS1sYWJlbD0iQ2xvc2UiPsOXPC9idXR0b24+Jyk7CiAgICBkLmFkZEV2ZW50TGlzdGVuZXIoJ2NsaWNrJywgZSA9PiB7CiAgICAgIGlmIChlLnRhcmdldC5jbG9zZXN0KCcud3otc2hlZXQteCcpKSByZXR1cm4gY2xvc2UoZCk7CiAgICAgIGlmIChlLnRhcmdldCA9PT0gZCkgeyBjb25zdCByID0gZC5nZXRCb3VuZGluZ0NsaWVudFJlY3QoKTsgaWYgKGUuY2xpZW50WCA8IHIubGVmdCB8fCBlLmNsaWVudFggPiByLnJpZ2h0IHx8IGUuY2xpZW50WSA8IHIudG9wIHx8IGUuY2xpZW50WSA+IHIuYm90dG9tKSBjbG9zZShkKTsgfQogICAgfSk7CiAgICBkLmFkZEV2ZW50TGlzdGVuZXIoJ2Nsb3NlJywgKCkgPT4geyBjb25zdCBpID0gb3Blbi5pbmRleE9mKGQpOyBpZiAoaSA+PSAwKSBvcGVuLnNwbGljZShpLCAxKTsgfSk7CiAgICBsZXQgeTAgPSBudWxsOyBjb25zdCBnID0gZC5xdWVyeVNlbGVjdG9yKCcud3otc2hlZXQtZ3JpcCcpOwogICAgZy5hZGRFdmVudExpc3RlbmVyKCdwb2ludGVyZG93bicsIGUgPT4geyB5MCA9IGUuY2xpZW50WTsgZy5zZXRQb2ludGVyQ2FwdHVyZShlLnBvaW50ZXJJZCk7IH0pOwogICAgZy5hZGRFdmVudExpc3RlbmVyKCdwb2ludGVybW92ZScsIGUgPT4geyBpZiAoeTAgIT0gbnVsbCkgZC5zdHlsZS50cmFuc2Zvcm0gPSBgdHJhbnNsYXRlWSgke01hdGgubWF4KDAsIGUuY2xpZW50WSAtIHkwKX1weClgOyB9KTsKICAgIGNvbnN0IGVuZCA9IGUgPT4geyBpZiAoeTAgPT0gbnVsbCkgcmV0dXJuOyBjb25zdCBkeSA9IGUuY2xpZW50WSAtIHkwOyB5MCA9IG51bGw7IGQuc3R5bGUudHJhbnNmb3JtID0gJyc7IGlmIChkeSA+IDcwKSBjbG9zZShkKTsgfTsKICAgIGcuYWRkRXZlbnRMaXN0ZW5lcigncG9pbnRlcnVwJywgZW5kKTsgZy5hZGRFdmVudExpc3RlbmVyKCdwb2ludGVyY2FuY2VsJywgZW5kKTsKICAgIHJldHVybiBkOwogIH0KICBmdW5jdGlvbiBzaG93KGQpIHsgd2lyZShkKTsgaWYgKCFkLm9wZW4pIGQuc2hvd01vZGFsKCk7IGlmICghb3Blbi5pbmNsdWRlcyhkKSkgb3Blbi5wdXNoKGQpOyByZXR1cm4gZDsgfQogIGZ1bmN0aW9uIGNsb3NlKGQpIHsgaWYgKGQgJiYgZC5vcGVuKSBkLmNsb3NlKCk7IH0KICBjb25zdCBwcmV2ID0gd2luZG93Ll9fd2l6YXJkQ2xvc2VPdmVybGF5OwogIHdpbmRvdy5fX3dpemFyZENsb3NlT3ZlcmxheSA9ICgpID0+IHsgY29uc3QgZCA9IG9wZW4ucG9wKCk7IGlmIChkKSB7IGNsb3NlKGQpOyByZXR1cm4gdHJ1ZTsgfSByZXR1cm4gdHlwZW9mIHByZXYgPT09ICdmdW5jdGlvbicgPyAhIXByZXYoKSA6IGZhbHNlOyB9OwogIHdpbmRvdy5XelNoZWV0ID0geyBvcGVuOiBzaG93LCBjbG9zZSwgd2lyZSB9Owp9KSgpOwo='}
 
 
       if __name__ == "__main__":
